@@ -253,3 +253,8 @@ benchmarks/results/
 
 Thumbs.db
 Desktop.ini
+
+# Kaggle data
+!data/
+data/*
+!data/download_data.py
