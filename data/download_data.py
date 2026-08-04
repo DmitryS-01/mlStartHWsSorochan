@@ -6,7 +6,6 @@ import sys
 import zipfile
 from pathlib import Path
 
-
 COMPETITION = "porto-seguro-safe-driver-prediction"
 DATA_DIR = Path(__file__).resolve().parent
 REQUIRED_FILES = (
@@ -20,9 +19,7 @@ def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     existing_files = [
-        file_name
-        for file_name in REQUIRED_FILES
-        if (DATA_DIR / file_name).exists()
+        file_name for file_name in REQUIRED_FILES if (DATA_DIR / file_name).exists()
     ]
 
     if len(existing_files) == len(REQUIRED_FILES):
@@ -66,9 +63,7 @@ def main() -> None:
         archive_path.unlink()
 
     missing_files = [
-        file_name
-        for file_name in REQUIRED_FILES
-        if not (DATA_DIR / file_name).exists()
+        file_name for file_name in REQUIRED_FILES if not (DATA_DIR / file_name).exists()
     ]
 
     if missing_files:
