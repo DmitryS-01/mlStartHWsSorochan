@@ -116,6 +116,8 @@ service-account*.json
 
 logs/
 log/
+local/
+.local/
 *.log
 *.out
 *.err
@@ -165,7 +167,7 @@ weights/
 checkpoints/
 checkpoint/
 artifacts/
-outputs/
+# outputs/
 output/
 predictions/
 submissions/
