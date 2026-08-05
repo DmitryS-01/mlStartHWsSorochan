@@ -1,57 +1,47 @@
-# ML Start hw02 -- Porto Seguro Safe Driver Prediction
+# ML Start hw02 -- [Porto Seguro’s Safe Driver Prediction](https://www.kaggle.com/competitions/porto-seguro-safe-driver-prediction)
 
 > Сорочан Дмитрий · [Telegram](https://t.me/legenda0008) · [Kaggle](https://www.kaggle.com/dmitrysorochan)
 
-Решение соревнования [Porto Seguro’s Safe Driver Prediction](https://www.kaggle.com/competitions/porto-seguro-safe-driver-prediction).
+## Результаты
 
-## Результат
-
-Лучший submission -- `outputs/optuna_submission.csv`.
+[Лучшее решение](outputs/optuna_submission.csv).
 
 | Submission | Private Gini | Public Gini |
 |---|---:|---:|
+| **`optuna_submission.csv`** | **0.28314** | **0.27717** |
+| `lgbm_submission.csv` | 0.28256 | 0.27655 |
+| `score_weighted_submission.csv` | 0.28127 | 0.27503 |
+| `equal_submission.csv` | 0.28114 | 0.27490 |
+| `rf_submission.csv` | 0.27011 | 0.26441 |
+| `logreg_submission.csv` | 0.26737 | 0.26089 |
+| `knn_submission.csv` | 0.19859 | 0.19171 |
 | `gnb_submission.csv` | 0.18599 | 0.18858 |
-| `rf_submission.csv` | 0.26584 | 0.25979 |
-| `logreg_submission.csv` | 0.26683 | 0.26012 |
-| `lgbm_submission.csv` | 0.27963 | 0.27292 |
-| `equal_submission.csv` | 0.27966 | 0.27298 |
-| `score_weighted_submission.csv` | 0.27976 | 0.27308 |
-| **`optuna_submission.csv`** | **0.28134** | **0.27471** |
+| `svc_rbf_submission.csv` | -0.09741 | -0.09060 |
 
-[Мой профиль -- @dmitrysorochan.](https://www.kaggle.com/dmitrysorochan)
+По Private Gini результат соответствовал бы **2665 месту из 5156**, то есть примерно **топ-51.7%**.
 
 ![Kaggle submissions](outputs/scores.png)
 
-В соревновании 5 156 команд, текущий результат находится примерно на границе топ-50% :(((
-
 ## Подход
 
-1. EDA: баланс классов, пропуски, распределения, корреляции, train/test shift.
-2. Feature engineering: удаление почти константных признаков, обработка категорий и пропусков, проверка PCA.
-3. Модели: GaussianNB, Logistic Regression, Random Forest, LightGBM.
-4. Optuna с пятифолдовой стратифицированной CV и Normalized Gini.
-5. OOF-предсказания и rank blending:
-   - равные веса;
-   - веса по OOF Gini;
-   - веса, подобранные Optuna.
+1. Единая `StratifiedKFold` на 5 фолдов и Normalized Gini.
+2. Feature engineering через Random Forest; в финальных моделях PCA не используется.
+3. Проверены GaussianNB, Logistic Regression, Random Forest, LightGBM, RBF-SVC и KNN.
+4. Вся обучаемая предобработка выполняется внутри CV-пайплайнов.
+5. Гиперпараметры подбираются Optuna с общим лимитом 3 часа на study.
+6. Для моделей получены OOF- и test-предсказания.
+7. Финальный rank blend строится из Logistic Regression, Random Forest и LightGBM.
 
-Все обучаемые преобразования находятся внутри CV-пайплайнов.
+RBF-SVC и KNN обучались на стратифицированных подвыборках внутри каждого фолда, поскольку точные методы плохо масштабируются на весь датасет.
 
-## Что сработало
+## Выводы
 
-- LightGBM стал лучшей одиночной моделью;
-- rank blend улучшил результат;
-- лучшие веса бленда нашла Optuna;
-- удаление только совсем слабых почти константных признаков не ухудшило качество.
-
-## Что не сработало
-
-- GaussianNB дал слабый leaderboard score;
-- агрессивное удаление признаков ухудшало CV;
-- `PCA(n_components=2)` помог GaussianNB, но ухудшал остальные модели, поэтому в финальных пайплайнах не использовался;
-- равные и пропорциональные score веса почти не улучшили LightGBM.
-
-Топовые решения активно использовали нейросети и denoising autoencoders. Здесь решение намеренно собрано только на классическом ML.
+- LightGBM -- лучшая одиночная модель;
+- Optuna-бленд улучшил LightGBM до `0.28314` Private и `0.27717` Public;
+- Random Forest дал полезное разнообразие для ансамбля;
+- GaussianNB и KNN оказались слабыми;
+- RBF-SVC получил отрицательный Gini;
+- слабые модели не добавлялись в финальный бленд только ради низкой корреляции.
 
 ## Структура
 
@@ -59,18 +49,17 @@
 .
 ├── 00_EDA.ipynb
 ├── 01_feature_engineering.ipynb
-├── 03_models.ipynb
+├── 02_modeling.ipynb
 ├── data/
-│   ├── download_data.py
-│   ├── train.csv
-│   ├── test.csv
-│   └── sample_submission.csv
+│   └── download_data.py
 ├── outputs/
 │   ├── scores.png
 │   ├── gnb_submission.csv
 │   ├── logreg_submission.csv
 │   ├── rf_submission.csv
 │   ├── lgbm_submission.csv
+│   ├── svc_rbf_submission.csv
+│   ├── knn_submission.csv
 │   ├── equal_submission.csv
 │   ├── score_weighted_submission.csv
 │   └── optuna_submission.csv
@@ -78,8 +67,6 @@
 ├── .gitignore
 └── README.md
 ```
-
-CSV с исходными данными и локальные логи не хранятся в Git.
 
 ## Запуск
 
@@ -89,18 +76,14 @@ python3 -m pip install -U \
     scikit-learn lightgbm optuna kaggle jupyter
 ```
 
-Скачать данные:
-
 ```bash
 python3 data/download_data.py
 ```
 
-Запустить ноутбуки по порядку:
+Ноутбуки запускаются по порядку:
 
 ```text
 00_EDA.ipynb
 01_feature_engineering.ipynb
 03_models.ipynb
 ```
-
-Финальные submissions сохраняются в `outputs/`. Optuna trials, OOF-предсказания и графики сохраняются в `.local/` и игнорируются Git.
