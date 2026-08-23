@@ -2,34 +2,39 @@
 
 > Сорочан Дмитрий · [Telegram](https://t.me/legenda0008)
 
-Тема 24: исследование влияния **глубины и ширины MLP** на MNIST, Fashion-MNIST и синтетических функциях.
+**Тема 24:** исследование влияния **глубины и ширины MLP** на `MNIST`, `Fashion-MNIST` и синтетических функциях.
 
 ## Что сделано
 
-- подробный `EDA` двух корпусов: `histograms`, `boxplots`, `correlation matrix`, `PCA`, `class centroids`;
-- 5 engineered image-features для обязательной части задания _(часть из них оказалась коррелированной)_;
-- большой sweep `MLP`: `depth = 1, 2, 3, 5, 10, 20, 50, 100`, `width = 8, 16, 32, 64, 128, 256` $\textcolor{red}{\#TODO}$ увеличить ширину;
-- heatmap `width × depth -> balanced accuracy / macro-F1`;
-- `learning curves` с train + validation loss на одном графике и train/val balanced accuracy;
+- подробный EDA двух корпусов: баланс классов, примеры, распределения пикселей, variance maps, boxplots, correlation matrix, PCA, class centroids и распределения engineered features по классам;
+- 5 engineered image-features: `mean_brightness`, `pixel_std`, `ink_density`, `center_x`, `center_y`;
+- единый sweep `depth × width` с `WIDTHS = [8, 16, 32, 64, 128, 256, 512, 1024, 2048]`; ширина в том же эксперименте выходит далеко за 784 входных пикселя;
+- heatmap `width × depth -> balanced accuracy / macro-F1` и графики качества по глубине/ширине;
+- learning curves с train + validation loss на одном графике и train/val balanced accuracy;
 - shallow vs deep при одинаковом бюджете параметров;
-- 5-fold StratifiedKFold для выбранной `MLP` как проверка устойчивости;
+- 5-fold StratifiedKFold выбранной MLP как проверка устойчивости;
 - weight decay как фиксированная регуляризация MLP;
-- классика: `GaussianNB`, `Logistic Regression`, `Random Forest`, ~~`LightGBM`~~;
-- для классики: GridSearchCV на 5 стратифицированных фолдах и внешний validation;
+- классика: `GaussianNB`, `Logistic Regression`, `Random Forest`;
+- для классики: GridSearchCV на 5 стратифицированных фолдах и внешний hold-out validation;
 - balanced accuracy + macro-F1 + macro-precision + macro-recall;
 - большие normalized confusion matrix и автоматический анализ top-confusions;
+- feature importance для Random Forest с настоящими именами пикселей и engineered features;
 - синтетика: почти линейная, полиномиальная, периодическая и Heaviside;
-- bonus feature importance `Random Forest`;
-- bonus blending: классика и классика + `MLP`;
+- для каждой синтетической функции строится MSE heatmap `width × depth`;
+- для deep `Tanh` используется одинаковая Xavier initialization: сравнение больше не ломается из-за схлопывания сигнала на старте;
+- blending: equal-weight и metric-weighted soft voting;
+- таблицы корреляций probability predictions и индикаторов ошибок моделей;
 - LaTeX/PDF-отчет.
 
 ## Методология
 
-Главная метрика -- **balanced accuracy**. На `MNIST` / `Fashion-MNIST` классы почти сбалансированы, но единая метрика делает все сравнения согласованными. Дополнительно считаются `macro-F1`, `macro-precision` и `macro-recall`.
+Главная метрика -- **balanced accuracy**. На `MNIST` и `Fashion-MNIST` классы почти сбалансированы, но одна основная метрика делает сравнение единообразным. Дополнительно считаются `macro-F1`, `macro-precision` и `macro-recall`.
 
-Для большого `MLP` sweep используется один фиксированный stratified train/validation split. Test не участвует в выборе архитектуры. После выбора лучшая конфигурация дополнительно проверяется 5-fold CV, затем переобучается на всей official train-части и только после этого один раз оценивается на official test.
+Для большого MLP sweep используется один фиксированный stratified train/validation split. Это осознанный компромисс: повторять всю большую сетку на пяти фолдах слишком дорого. После выбора лучшая архитектура отдельно проверяется 5-fold CV. Все доступные точки единого width/depth sweep участвуют в выборе кандидата; комбинации больше 20 млн параметров отмечаются как пропущенные до создания модели, чтобы эксперимент не превращался в тест RAM. Official test не участвует ни в sweep, ни в CV; после выбора архитектура переобучается на всей official train-части и test оценивается один раз.
 
-Для классики внешний validation отделяется **до** настройки моделей. GridSearchCV работает только внутри train на `StratifiedKFold(n_splits=5)`. Обучаемый scaling Logistic Regression находится внутри `Pipeline`, поэтому fit scaler выполняется только на соответствующем train-fold.
+Для классики внешний validation отделяется до настройки моделей. GridSearchCV работает только внутри train на `StratifiedKFold(n_splits=5)`. Scaling Logistic Regression находится внутри `Pipeline`, поэтому scaler не видит validation fold заранее. `GridSearchCV` запускается последовательно (`SEARCH_N_JOBS=1`), а параллелизм остается только внутри Random Forest: это убирает nested parallelism и лишние пики памяти, не меняя пространство гиперпараметров.
+
+Для blending equal-weight вариант не настраивается вообще, а metric-weighted веса пропорциональны CV balanced accuracy, полученной на train. По hold-out validation веса не подбираются. При этом сами blend-метрики считаю **exploratory**: этот validation раньше использовался для выбора MLP-архитектуры, поэтому он не является независимым test ансамбля. Финальная независимая оценка остается official test из `01`.
 
 ## Структура
 
@@ -50,6 +55,8 @@ hws/
 └── README.md
 ```
 
+В рабочем проекте каталог `hws/` лежит внутри `/mlStart`. Kernel может быть запущен из `/mlStart`: ноутбуки сами находят `/mlStart/hws` и сохраняют результаты в `/mlStart/hws/output`.
+
 ## Порядок запуска
 
 ```text
@@ -60,11 +67,11 @@ hws/
 04_blending.ipynb
 ```
 
-`04` зависит от probabilities, сохраненных `01` и `02`. Остальные ноутбуки независимы по коду, но логически лучше запускать именно в указанном порядке.
+`04` зависит от probabilities и CV-таблиц, сохраненных `01` и `02`. После изменений в архитектурном sweep, классике или синтетике лучше запускать ноутбуки именно в этом порядке, чтобы в `output/` не оставались результаты старой конфигурации.
 
 ## Запуск на Linux
 
-Из root-директории:
+Из `/mlStart`:
 
 ```bash
 python3 -m venv .venv
@@ -74,8 +81,6 @@ python -m pip install -r hws/requirements.txt
 jupyter lab
 ```
 
-Все результаты сохраняются в `hws/output/`.
-
 Для сборки отчета:
 
 ```bash
@@ -84,15 +89,29 @@ pdflatex report.tex
 pdflatex report.tex
 ```
 
+## Что изменилось в последних экспериментах
+
+### Более широкие MLP
+
+Основной sweep сразу использует ширины от 8 до 2048 и глубины до 100. Чтобы не создавать заведомо многогигабайтные модели, сочетания свыше 20 млн параметров пропускаются до инициализации и остаются пустыми точками на heatmap. Так широкие сети сравниваются в том же протоколе, но Jupyter не падает на `depth=100, width=2048`.
+
+### Feature importance
+
+В классическом ноутбуке 789 признаков: 784 пикселя + 5 engineered features. Importance подписана как `pixel_row_col`, `mean_brightness`, `pixel_std`, `ink_density`, `center_y`, `center_x`. Коррелированные engineered features оставлены: для деревьев это допустимо, но importance таких признаков надо интерпретировать группой, потому что она может распределяться между ними.
+
+### Blending
+
+Отсутствие прироста на `MNIST` -- понятный возможный результат. В сохраненном прогоне probability correlations между `LR`/`RF`/`MLP` высокие (примерно `0.94--0.95`), поэтому модели во многом повторяют друг друга. На MNIST лучшая одиночная `MLP` осталась сильнее простого blend; на `Fashion-MNIST` equal/metric blend дал небольшой прирост. Metric-weighted веса считаются по train-CV, а не подгоняются под hold-out validation.
+
 ## Чек-лист задания
 
 ### Обязательная часть
 
-- [x] описание датасета, размеры, типы данных, target;
-- [x] визуальный EDA: баланс классов, примеры, распределения пикселей, variance maps, class centroids, PCA;
-- [x] обработка особенностей данных: пропусков/категорий нет, редкие изображения не удаляются как «выбросы» без основания;
-- [x] feature engineering: brightness, pixel std, ink density, center X/Y;
-- [x] минимум 3 классических алгоритма: фактически 4;
+- [x] описание датасетов, размеров, типов данных и target;
+- [x] визуальный EDA: баланс классов, примеры, распределения, boxplot, correlation matrix, variance maps, centroids, PCA и class-conditional distributions engineered features;
+- [x] обработка особенностей данных: пропусков/категорий нет, редкие изображения не удаляются без основания;
+- [x] feature engineering: 5 новых image-level признаков;
+- [x] минимум 3 классических алгоритма: GaussianNB, Logistic Regression, Random Forest;
 - [x] подбор гиперпараметров GridSearchCV;
 - [x] не менее 5 фолдов CV;
 - [x] обоснование MLP architecture и большой depth/width sweep;
@@ -100,7 +119,7 @@ pdflatex report.tex
 - [x] регуляризация MLP через weight decay;
 - [x] общая таблица качества и времени;
 - [x] confusion matrix и содержательный error analysis;
-- [x] test не используется для выбора архитектуры.
+- [x] test не используется для выбора архитектуры или blend-весов.
 
 ### Тема 24
 
@@ -109,28 +128,44 @@ pdflatex report.tex
 - [x] синтетические функции;
 - [x] влияние depth и width;
 - [x] heatmap `width × depth -> quality`;
-- [x] shallow vs deep при сопоставимом числе параметров.
+- [x] единый sweep включает ширины 1024 и 2048, то есть больше 784 входных признаков;
+- [x] shallow vs deep при сопоставимом числе параметров;
+- [x] MSE heatmap для всех выбранных синтетических функций.
 
 ### Бонусы
 
+- [x] feature importance + анализ top-features;
 - [x] blending нескольких моделей;
-- [x] GitHub-ready README + requirements;
-- [x] дополнительное исследование: error analysis + parameter-matched ablation + Heaviside как разрывный пример.
-- [x] feature importance LightGBM + анализ top-features.
+- [x] equal-weight и metric-weighted blending;
+- [x] корреляции predictions/errors для анализа потенциальной пользы ансамбля;
+- [x] error analysis по confusion matrix;
+- [x] дополнительный parameter-matched ablation;
+- [x] Heaviside как отдельный разрывный пример;
+- [x] GitHub-ready README + requirements.
 
-## Воспроизводимость
+## Воспроизводимость и отсутствие leakage
 
-Во всех ноутбуках используется `SEED = 143`. Split и `StratifiedKFold` фиксированы. PyTorch, NumPy и Python random получают тот же seed. В GridSearchCV `n_jobs=-1`, LightGBM и Random Forest тоже работают в один процесс -- медленнее, зато без скачков памяти и без различий из-за параллельного выполнения.
+- `SEED = 143` фиксирован для NumPy, Python random, PyTorch, split и CV;
+- train/validation split одинаков для сравниваемых архитектур и классических моделей;
+- official test не используется при выборе depth/width, hyperparameters или blend weights;
+- GridSearchCV обучается только на train;
+- StandardScaler находится внутри Pipeline;
+- metric-based blending вычисляет численные веса из train-CV scores; MLP-архитектура при этом уже выбрана по hold-out validation, поэтому blend-оценка явно помечена как exploratory;
+- validation probabilities разных моделей дополнительно проверяются на одинаковый порядок `y_true` перед blending;
+- новые synthetic initialization/LR одинаковы для всех depth/width конфигураций;
+- фиксированные seed обеспечивают воспроизводимый протокол; точное побитовое совпадение классификационных MLP на разных CPU/CUDA/MPS backend не гарантируется библиотеками. Синтетический notebook специально работает на CPU для стабильности большого последовательного sweep.
 
-## Что смотреть в результатах
+## Что лежит в `output/`:
 
-После полного запуска основные таблицы лежат в `output/*.csv`, картинки -- в `output/*.png`. В первую очередь:
-
-- `mnist_*_heatmap.png`, `fashion_*_heatmap.png`;
+- `mnist_val_balanced_accuracy_heatmap.png`, `fashion_val_balanced_accuracy_heatmap.png`;
 - `*_learning_curve_loss.png`;
 - `*_parameter_matched_balanced_accuracy.png`;
 - `mlp_cv_results.csv`;
 - `*_classical_results.csv`;
+- `*_random_forest_feature_importance.png`;
+- `model_comparison.csv`;
 - `*_mlp_confusion_matrix.png`, `*_best_classical_confusion_matrix.png`;
-- `blending_results.csv`;
-- `synthetic_mse_heatmap.png`, `synthetic_approximation_heaviside.png`.
+- `blending_results.csv`, `blending_weights.csv`;
+- `*_prediction_correlations.png`;
+- `synthetic_mse_heatmaps_all.png` и отдельные `synthetic_mse_heatmap_<function>.png`;
+- `synthetic_approximation_heaviside.png`.

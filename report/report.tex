@@ -14,14 +14,14 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 
-\geometry{left=20mm,right=20mm,top=18mm,bottom=20mm}
-\setlength{\parindent}{1.1cm}
-\setlength{\parskip}{0.35em}
+\geometry{left=19mm,right=19mm,top=17mm,bottom=18mm}
+\setlength{\parindent}{1cm}
+\setlength{\parskip}{0.25em}
 \definecolor{linkblue}{RGB}{35,88,150}
 \hypersetup{colorlinks=true, linkcolor=linkblue, urlcolor=linkblue}
 \titleformat{\section}{\Large\bfseries}{\thesection}{0.6em}{}
 \titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.5em}{}
-\setlist[itemize]{topsep=3pt,itemsep=2pt,leftmargin=18pt}
+\setlist[itemize]{topsep=2pt,itemsep=1pt,leftmargin=18pt}
 
 \newcommand{\maybefig}[3]{%
   \IfFileExists{../output/#1}{%
@@ -32,152 +32,151 @@
   }{}
 }
 
+\newcommand{\maybepair}[4]{%
+  \IfFileExists{../output/#1}{%
+    \IfFileExists{../output/#2}{%
+      \begin{figure}[H]\centering
+      \begin{minipage}{0.49\textwidth}\centering
+      \includegraphics[width=\linewidth]{../output/#1}
+      \end{minipage}\hfill
+      \begin{minipage}{0.49\textwidth}\centering
+      \includegraphics[width=\linewidth]{../output/#2}
+      \end{minipage}
+      \caption{#3 (слева) и #4 (справа).}
+      \end{figure}
+    }{}
+  }{}
+}
+
 \begin{document}
 
 \begin{center}
-{\LARGE\bfseries ML Start 2026: домашнее задание \#3}\\[3mm]
-{\Large Тема 24: глубина vs ширина MLP}\\[2mm]
+{\LARGE\bfseries ML Start 2026: домашнее задание \#3}\\[2mm]
+{\Large Тема 24: глубина vs ширина MLP}\\[1mm]
 {\normalsize Сорочан Дмитрий}
 \end{center}
 
-\section{Что исследуется}
+\section{Постановка задачи}
 
-\hspace*{11mm}Задача темы 24 --- понять, как число скрытых слоев и ширина MLP влияют на качество аппроксимации. Исследование проведено на трех типах данных из условия: MNIST, Fashion-MNIST и синтетических функциях. Для корпусов задача --- многоклассовая классификация изображений $28\times28$, для синтетики --- одномерная регрессия.
+\hspace*{11mm}Цель работы --- исследовать, как глубина и ширина многослойного перцептрона влияют на качество. Используются оба корпуса из темы 24 --- MNIST и Fashion-MNIST --- и отдельный блок с синтетическими функциями. Для классификации вход имеет 784 пикселя, выход --- 10 классов.
 
-Исследуемая сеть намеренно простая:
+Базовая архитектура намеренно простая:
 $$
   x 
-  \to \mathrm{Flatten} \to (\mathrm{Linear}\to\mathrm{ReLU})^d \to \mathrm{Linear}(10).
+  \to \mathrm{Flatten} 
+  \to (\mathrm{Linear}
+  \to\mathrm{ReLU})^d 
+  \to \mathrm{Linear}(10).
 $$
-Фиксированы Adam, learning rate и weight decay. Это важно: если одновременно менять BatchNorm, residual connections и scheduler, станет непонятно, что именно дало прирост --- глубина или дополнительная техника оптимизации.
+Фиксированы Adam, learning rate и weight decay. Это позволяет менять именно $d$ и $w$, а не одновременно архитектуру, scheduler, BatchNorm и residual connections.
 
-Для $d$ скрытых слоев ширины $w$ число параметров равно
+Для одинаковой ширины число параметров зависит от глубины:
 $$
-  P(d, w)
-  = (784 + 1) \cdot w + (d - 1) \cdot (w + 1) \cdot w + (w + 1) \cdot 10.
+    P(d, w)
+    = (784 + 1) \cdot w + (d - 1) \cdot (w + 1) \cdot w + (w + 1) \cdot 10.
 $$
-Поэтому кроме обычной сетки $d\times w$ проведен отдельный parameter-matched эксперимент: shallow и deep сети сравниваются при близком числе параметров.
+Поэтому кроме обычного sweep проведен parameter-matched эксперимент, где shallow и deep сети сравниваются при близком числе параметров.
 
-\subsection{Почему shallow-сеть вообще имеет шанс}
+\subsection{Теоретическая мотивация}
 
-\hspace*{11mm}Теорема об универсальной аппроксимации гарантирует существование достаточно широкой однослойной сети, приближающей непрерывную функцию на компакте. Но это утверждение не дает эффективной ширины, алгоритма поиска весов или гарантии обобщения. Глубина может быть параметрически выгоднее для композиционных зависимостей, но plain deep MLP при этом может хуже оптимизироваться. Именно этот конфликт и проверяется экспериментально.
+\hspace*{11mm}Теорема об универсальной аппроксимации говорит, что достаточно широкая сеть с одним скрытым слоем и подходящей нелинейностью может приближать непрерывные функции на компакте. Но теорема не говорит, какая ширина нужна, как найти веса и насколько хорошо модель будет обобщать. Глубина может быть параметрически выгоднее, но очень глубокую plain MLP тяжелее оптимизировать. Работа проверяет именно этот компромисс.
 
-\section{EDA, preprocessing и feature engineering}
+\section{Данные, EDA и признаки}
 
-\hspace*{11mm}Оба корпуса содержат $60 000$ train и $10 000$ test изображений, 10 классов и одинаковый размер входа. Исходные пиксели --- `uint8`, пропусков и категориальных признаков нет. Редкие формы не удаляются как выбросы: в изображениях нет основания считать необычную цифру ошибкой наблюдения.
+\hspace*{11mm}MNIST и Fashion-MNIST имеют одинаковый формат: $60\,000$ train, $10\,000$ official test, изображения $28\times28$, 10 классов. Пропусков и категориальных признаков нет. Fashion-MNIST визуально сложнее из-за похожих классов верхней одежды.
 
-\maybefig{eda_mnist_class_balance.png}{0.62}{Баланс классов MNIST.}\maybefig{eda_fashion_class_balance.png}{0.62}{Баланс классов Fashion-MNIST.}
-\maybefig{eda_fashion_examples.png}{0.78}{Случайные примеры Fashion-MNIST: несколько классов верхней одежды визуально близки.}\maybefig{eda_engineered_features_correlations.png}{0.72}{Корреляции engineered признаков.}
+\maybepair{eda_class_balance.png}{eda_engineered_features_correlations.png}{баланс классов}{корреляции engineered features}
+\maybepair{eda_mnist_engineered_features_by_class.png}{eda_fashion_engineered_features_by_class.png}{MNIST: engineered features по классам}{Fashion-MNIST: engineered features по классам}
 
-В EDA есть требуемые распределения, boxplot и correlation matrix для engineered признаков. Для feature engineering построены пять простых глобальных признаков: средняя яркость, стандартное отклонение пикселей, доля активных пикселей и две координаты центра массы. Они добавляются только в классические модели (с удалением первых двух как коррелированных с третьим). MLP получает исходные пиксели, чтобы исследование архитектуры не смешивалось с ручным представлением данных.
+Для классических моделей к 784 пикселям добавлены пять image-level признаков: средняя яркость, стандартное отклонение пикселей, доля активных пикселей и координаты центра массы. Коррелированные признаки не удаляются автоматически: для деревьев корреляция не нарушает корректность обучения, но importance может распределяться между похожими признаками.
 
-Основная метрика --- \textbf{balanced accuracy}. На этих корпусах дисбаланс слабый, но единая метрика делает сравнение согласованным. Также считаются macro-F1, macro-precision и macro-recall.
+В EDA дополнительно строятся распределения каждого engineered feature по 10 классам отдельно для MNIST и Fashion-MNIST. Это позволяет проверить, несут ли глобальная заполненность, контраст и центр массы class-conditional сигнал до обучения классических моделей.
 
-\section{Эксперимент с архитектурой MLP}
+Основная метрика --- \textbf{balanced accuracy}; дополнительно считаются macro-F1, macro-precision и macro-recall. Хотя оба корпуса почти сбалансированы, единая метрика делает все сравнения согласованными.
 
-\hspace*{11mm}Основная сетка: $d\in\{1,2,3,5,10,20,50,100\}$ и $w\in\{8,16,32,64,128,256\}$. Все комбинации получают одинаковое число эпох и одинаковый optimizer budget. Early stopping в sweep не используется именно ради честности сравнения.
+\section{Глубина и ширина MLP}
 
-\maybefig{mnist_val_balanced_accuracy_heatmap.png}{0.6}{MNIST: balanced accuracy для сетки width $\times$ depth.}
-\maybefig{fashion_val_balanced_accuracy_heatmap.png}{0.6}{Fashion-MNIST: balanced accuracy для сетки width $\times$ depth.}
+\hspace*{11mm}Основная прямоугольная сетка:
+$$
+  d
+  \in \{1, 2, 3, 5, 10, 20, 50, 100\},\qquad
+  w
+  \in \{8, 16, 32, 64, 128, 256, 512, 1024, 2048\}.
+$$
+На каждой точке фиксированы train subset, validation, число эпох, optimizer и regularization. Early stopping в sweep не используется, чтобы разные архитектуры получили одинаковый training budget.
 
-Heatmap дополняется графиками по глубине/ширине и parameter-matched ablation. Последний особенно важен: он отделяет пользу глубины от банального увеличения числа обучаемых параметров.
+\maybepair{mnist_val_balanced_accuracy_heatmap.png}{fashion_val_balanced_accuracy_heatmap.png}{MNIST: width $\times$ depth}{Fashion-MNIST: width $\times$ depth}
 
-\maybefig{mnist_parameter_matched_balanced_accuracy.png}{0.76}{MNIST: shallow vs deep при сопоставимом числе параметров.}
+Широкие сети входят в тот же основной sweep, поэтому отдельного второго прохода нет. Для сочетаний свыше 20 млн параметров обучение пропускается до создания модели: например, $d=100,w=2048$ потребовал бы сотни миллионов параметров и многогигабайтные состояния Adam. Такие точки проверяли бы прежде всего доступную память, а не архитектурный эффект.
 
-\subsection{Learning curves и регуляризация}
+\subsection{Learning curves, регуляризация и CV}
 
-\hspace*{11mm}Требование по регуляризации закрыто фиксированным weight decay $10^{-4}$. Он одинаков для всех архитектур и поэтому не превращается в дополнительную ось подбора.
+\hspace*{11mm}Weight decay $10^{-4}$ используется одинаково для всех MLP. На learning curves train и validation loss строятся на одном графике; отдельно сравнивается balanced accuracy. Это позволяет отличить переобучение от ситуации, когда deep-сеть просто плохо оптимизируется.
 
-На learning curves train и validation loss показаны на одном графике. Отдельно строится аналогичный график balanced accuracy.
+\maybepair{mnist_learning_curve_loss.png}{fashion_learning_curve_loss.png}{MNIST: train/validation loss}{Fashion-MNIST: train/validation loss}
 
-\maybefig{mnist_learning_curve_loss.png}{0.82}{MNIST: train и validation loss для нескольких характерных архитектур.}
-\maybefig{fashion_learning_curve_loss.png}{0.82}{Fashion-MNIST: train и validation loss.}
+Большой sweep выполняется на одном фиксированном stratified hold-out split. После выбора архитектура дополнительно проверяется 5-fold StratifiedKFold на train subset. Это не используется как новый поиск hyperparameters, а служит проверкой устойчивости выбранной конфигурации.
 
-\subsection{Cross-validation и test protocol}
-
-\hspace*{11mm}Большой sweep выполняется на одном фиксированном stratified split, иначе полный $48$-точечный grid пришлось бы повторять пять раз. После выбора кандидата лучшая архитектура дополнительно проходит 5-fold StratifiedKFold на той же train-подвыборке. Это проверяет устойчивость результата к конкретному разбиению.
-
-Official test не участвует ни в sweep, ни в CV. После выбора архитектура переобучается на всей official train-части и test оценивается один раз. Такой порядок исключает превращение test в скрытый validation.
+Official test не участвует ни в sweep, ни в CV. После выбора сеть переобучается на всей official train-части и test оценивается один раз.
 
 \section{Классические модели}
 
-\hspace*{11mm}Для общей части задания используются три модели: GaussianNB, Logistic Regression и Random Forest. Внешний validation отделяется заранее. Подбор гиперпараметров выполняется только на train через 5-fold StratifiedKFold и GridSearchCV. Scaling Logistic Regression находится внутри Pipeline, поэтому статистики scaler не видят validation-fold заранее.
+\hspace*{11mm}Проверяются GaussianNB, Logistic Regression и Random Forest. Внешний validation отделяется заранее; GridSearchCV работает только на train через 5-fold StratifiedKFold. StandardScaler для Logistic Regression находится внутри Pipeline.
 
-Random Forest не ограничивается по глубине (\texttt{max\_depth=None}). Для Logistic Regression установлен высокий общий \texttt{MAX\_ITER}, чтобы линейный baseline успевал сойтись. Итог сравнивается по тем же balanced accuracy, macro-F1, precision/recall и времени обучения.
+Для Random Forest не задается искусственный лимит глубины. GridSearchCV выполняется последовательно (\texttt{SEARCH\_N\_JOBS=1}), а параллелизм остается только внутри самого леса. Это избегает nested joblib-parallelism и лишних пиков памяти.
 
-\maybefig{mnist_classical_metrics.png}{0.84}{MNIST: сравнение классических моделей по нескольким метрикам.}
-\maybefig{fashion_classical_metrics.png}{0.84}{Fashion-MNIST: сравнение классических моделей.}
+\maybefig{mnist_random_forest_feature_importance.png}{0.72}{MNIST: Random Forest feature importance.}
 
+Feature importance имеет реальные имена: \texttt{pixel\_row\_col} и пять engineered features.
 
-\subsection{Feature importance}
+\section{Confusion matrix и анализ ошибок}
 
-\hspace*{11mm}Interpretability закрывается встроенной feature importance Random Forest. В `output` сохраняются top-25 признаков: это либо конкретные пиксели, либо engineered brightness/std/density/center features. Такой график позволяет проверить, использует ли boosting ручные признаки или почти полностью восстанавливает форму по пикселям.
+\hspace*{11mm}Для лучших моделей строятся normalized confusion matrix и таблица наиболее частых направленных ошибок \texttt{true -> predicted}. На Fashion-MNIST особенно важны пары Shirt/T-shirt/top/Pullover/Coat; это согласуется с EDA. На MNIST ошибки менее выражены и распределены между визуально похожими написаниями цифр.
 
-\maybefig{mnist_random_forest_feature_importance.png}{0.78}{MNIST: top-25 признаков Random Forest.}
-\maybefig{fashion_random_forest_feature_importance.png}{0.78}{Fashion-MNIST: top-25 признаков Random Forest.}
-
-\section{Confusion matrix и error analysis}
-
-\hspace*{11mm}Для Fashion-MNIST заранее ожидаемая сложная группа --- `T-shirt/top`, `Shirt`, `Pullover`, `Coat`: EDA показывает близкие силуэты. Если эти пары оказываются наверху фактической таблицы ошибок, confusion matrix дает содержательное объяснение снижения качества. Для MNIST пары не фиксируются заранее: вывод строится по фактическим top-confusions после запуска.
-
-\maybefig{mnist_best_classical_confusion_matrix.png}{0.6}{MNIST: normalized confusion matrix лучшей классической модели.}
-\maybefig{fashion_mlp_confusion_matrix.png}{0.6}{Fashion-MNIST: normalized confusion matrix финальной MLP.}
+\maybepair{mnist_best_classical_confusion_matrix.png}{fashion_mlp_confusion_matrix.png}{MNIST: лучшая классика}{Fashion-MNIST: MLP}
 
 \section{Синтетические функции}
 
-\hspace*{11mm}Выбраны четыре функции с разной структурой: почти линейная, полиномиальная, периодическая и Heaviside. Первая служит sanity check, полином дает гладкую нелинейность, периодическая функция используется для width $\times$ depth heatmap, а Heaviside показывает ограничение непрерывной MLP на разрыве.
+\hspace*{11mm}Выбраны четыре структуры: почти линейная функция, полином, периодическая функция и Heaviside. Теперь одна и та же сетка $d\times w$ прогоняется \textbf{по всем четырем функциям}, а не только по periodic. Это важно: оптимальная архитектура может зависеть от гладкости и локальной структуры целевой зависимости.
 
-\maybefig{synthetic_functions.png}{0.84}{Четыре синтетические функции.}
-\maybefig{synthetic_mse_heatmap.png}{0.72}{Периодическая функция: MSE.}
-\maybefig{synthetic_approximation_heaviside.png}{0.82}{Аппроксимация Heaviside: непрерывная сеть сглаживает скачок.}
+\maybefig{synthetic_functions.png}{0.70}{Выбранные синтетические функции.}
+\maybefig{synthetic_mse_heatmaps_all.png}{0.88}{MSE heatmap width $\times$ depth для всех четырех функций.}
 
-Забавный факт: стандартная MLP непрерывна. Поэтому последовательность таких сетей не может равномерно сойтись к разрывной Heaviside на всем отрезке; при этом MSE может быть малым, если зона перехода становится узкой.
+В старой версии конфигурация $d=20,w=32$ иногда превращалась почти в горизонтальную прямую. Проверка показала, что это был реальный optimization collapse, а не баг визуализации: стандартная инициализация вместе с 20 слоями Tanh почти уничтожала вариативность сигнала. Для всех конфигураций одинаково введена Xavier initialization с gain для Tanh и $LR=3\cdot10^{-3}$. В контрольном запуске periodic для $d=20,w=32$ получила MSE около $1.6\cdot10^{-3}$ и перестала быть константой. Большой synthetic sweep запускается на CPU: для 1D-данных GPU не нужен, а это исключает накопление MPS allocator cache при последовательном создании десятков моделей.
 
-\section{Blending}
+Heaviside остается принципиально особым примером: конечная MLP с непрерывными активациями непрерывна, поэтому точный скачок в sup-норме она не воспроизводит, хотя MSE может быть малым за счет узкой переходной области.
 
-\hspace*{11mm}Проверяются два fixed-weight soft-vote ансамбля: две классические модели и те же модели плюс MLP. Веса не оптимизируются на validation, чтобы бонусный эксперимент не превратился в еще один скрытый hyperparameter search. Если blend улучшает balanced accuracy, значит ошибки моделей достаточно различаются; если нет, это указывает на сильную корреляцию ошибок.
+\section{Blending и корреляции моделей}
 
-\maybefig{mnist_blending_metrics.png}{0.86}{MNIST: отдельные модели и blends.}
+\hspace*{11mm}Проверяются equal-weight и metric-weighted soft voting. Metric-based численные веса пропорциональны CV balanced accuracy на train. Однако MLP-архитектура до этого выбиралась по hold-out validation, поэтому весь blend-score трактуется как exploratory, а не как независимая test-оценка ансамбля. Для строгой финальной оценки потребовался бы отдельный untouched split для blending.
 
-\section{Корректность и воспроизводимость}
+Перед blending строятся две таблицы: корреляция развернутых probability predictions и корреляция бинарных индикаторов ошибок. Коррелировать номера классов нельзя --- это категориальные метки, а не числовая шкала.
 
-\begin{itemize}
-\item единый `SEED=143` для NumPy, Python, PyTorch и всех split;
-\item StratifiedKFold с 5 фолдами для классики и отдельной проверки выбранной MLP;
-\item test не участвует в выборе архитектуры или hyperparameters;
-\item scaling Logistic Regression находится внутри Pipeline;
-\item все модели сравниваются по одной системе метрик;
-\item RF и LightGBM не урезаны искусственным \texttt{max\_depth};
-\item результаты сохраняются в `hws/output`, независимо от cwd Jupyter kernel.
-\end{itemize}
+\maybepair{mnist_prediction_correlations.png}{fashion_prediction_correlations.png}{MNIST: корреляции predictions/errors}{Fashion-MNIST: корреляции predictions/errors}
+\maybefig{fashion_mnist_blending_metrics.png}{0.80}{Fashion-MNIST: одиночные модели и варианты blending.}
 
-\section{Чек-лист задания}
+В сохраненном прогоне probabilities LR/RF/MLP высоки, примерно $0.94$--$0.95$, а корреляции индикаторов ошибок умеренные. Поэтому большой прирост от простого усреднения не ожидается. На MNIST лучшая одиночная MLP осталась сильнее blend; на Fashion-MNIST equal blend улучшил balanced accuracy примерно с $0.8782$ до $0.8804$, metric-weighted --- до $0.8805$. Отсутствие большого прироста здесь является содержательным отрицательным результатом, а не ошибкой кода.
+
+\section{Корректность, leakage и воспроизводимость}
 
 \begin{itemize}
-\item EDA и preprocessing --- выполнены;
-\item 2--3+ engineered features --- выполнено, построено пять;
-\item минимум три классических алгоритма --- выполнено, четыре;
-\item hyperparameter search --- GridSearchCV;
-\item минимум 5-fold CV --- выполнено;
-\item MLP architecture rationale --- выполнено;
-\item train/val loss и метрика по эпохам --- выполнено;
-\item regularization --- weight decay;
-\item сравнение качества и времени --- выполнено;
-\item тема 24: MNIST, Fashion-MNIST, synthetic, heatmap, parameter-matched shallow/deep --- выполнено;
-\item bonus feature importance --- выполнено;
-\item bonus blending --- выполнено;
-\item bonus error analysis --- выполнено;
-\item GitHub-ready README + requirements --- выполнено.
+\item единый \texttt{SEED=143} для split, CV, NumPy, Python и PyTorch;
+\item все сравниваемые корпуса используют одинаковый hold-out validation protocol;
+\item official test не участвует в выборе архитектуры, hyperparameters или blend weights;
+\item StandardScaler обучается только внутри CV Pipeline;
+\item GridSearchCV видит только train, внешний validation остается контролем;
+\item metric-based blend вычисляет численные веса из train-CV scores; поскольку MLP-кандидат выбран по validation, сами blend-метрики явно помечены как exploratory;
+\item перед blending проверяется идентичность порядка \texttt{y\_true} во всех NPZ;
+\item synthetic initialization и learning rate одинаковы для всех depth/width;
+\item результаты сохраняются в \texttt{/mlStart/hws/output} независимо от cwd kernel.
 \end{itemize}
 
-Бонус interpretability выполнен через feature importance; SHAP отдельно не нужен, поскольку в условии указан вариант ``SHAP / feature importance``.
+\section{Чек-лист задания и итог}
+
+\hspace*{11mm}Выполнены EDA, feature engineering, три классических алгоритма, GridSearchCV и 5-fold CV, MLP с learning curves и регуляризацией, сравнение качества/времени, confusion matrix и error analysis. Для темы 24 есть MNIST, Fashion-MNIST, synthetic functions, единый sweep с ширинами 8--2048, heatmap, parameter-matched shallow/deep и MSE heatmap по всем синтетическим функциям. Бонусы закрыты feature importance, blending, correlation analysis и GitHub-ready оформлением.
+
+\textbf{Главный вывод:} глубину и ширину нельзя оценивать отдельно от training budget и числа параметров. Ширина обычно дает насыщение, тогда как чрезмерная глубина plain MLP может ухудшать оптимизацию. Но и этот эффект надо отделять от технических артефактов вроде неудачной инициализации --- именно поэтому synthetic block использует одинаковую Xavier initialization и отдельные learning curves.
 
 \IfFileExists{../output/generated_results.tex}{\input{../output/generated_results.tex}}{}
-
-\section{Итог}
-
-\hspace*{11mm}Поднимаемый вопрос: когда дополнительная глубина дает пользу при контроле ширины, training budget и числа параметров. Heatmap показывает глобальную картину, parameter-matched эксперимент контролирует complexity, learning curves объясняют оптимизацию, CV --- устойчивость, а confusion matrix --- структуру оставшейся ошибки. Синтетика дополняет классификацию примером, где истинная функция известна, включая разрывную Heaviside, на которой особенно хорошо видны ограничения непрерывной MLP.
-
-В общем случае, как удалось убедиться, нужен баланс: слишком широкая сеть избыточна, слишком глубокая покажет себя плохо из-за затухания градиентов.
 
 \end{document}

@@ -5,6 +5,5 @@ seaborn
 scikit-learn>=1.8
 torch
 torchvision
-lightgbm>=4.0
 jupyter
 nbformat
