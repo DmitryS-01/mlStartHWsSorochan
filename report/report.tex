@@ -1,0 +1,215 @@
+% !TeX program = pdflatex
+\documentclass[10pt,a4paper]{extarticle}
+
+\usepackage[a4paper,margin=1.15cm]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\setlength{\emergencystretch}{2em}
+\linespread{0.97}
+\raggedright
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english,russian]{babel}
+\usepackage{cmap}
+
+\usepackage{xcolor}
+\definecolor{linkblue}{RGB}{0,82,180}
+\usepackage{xurl}
+\usepackage[colorlinks=true,urlcolor=linkblue,linkcolor=linkblue]{hyperref}
+\usepackage{microtype}
+
+\usepackage{enumitem}
+\setlist[itemize]{leftmargin=13pt,itemsep=1pt,topsep=1pt,parsep=0pt,partopsep=0pt}
+\setlist[enumerate]{leftmargin=16pt,itemsep=1pt,topsep=1pt,parsep=0pt,partopsep=0pt}
+
+\usepackage{titlesec}
+\titleformat{\section}{\bfseries\normalsize}{}{0pt}{}
+\titleformat{\subsection}{\bfseries\small}{}{0pt}{}
+\titlespacing*{\section}{0pt}{5pt}{2pt}
+\titlespacing*{\subsection}{0pt}{4pt}{1pt}
+
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{array}
+
+\newcommand{\sep}{\hspace{3pt}\textbar\hspace{3pt}}
+\newcommand{\Caps}[1]{{\MakeUppercase{#1}}}
+\newcommand{\Metric}[1]{\textbf{#1}}
+\newcommand{\FigureOrBox}[2]{%
+  \IfFileExists{#1}{\includegraphics[width=\linewidth]{#1}}{%
+    \fbox{\parbox[c][4.1cm][c]{0.94\linewidth}{\centering #2}}%
+  }%
+}
+
+\begin{document}
+
+{\fontsize{19pt}{20pt}\selectfont\bfseries ML Start -- домашнее задание \#3}\par
+{\large Тема 24: архитектура имеет значение -- глубина vs ширина}\par
+\vspace{1pt}
+Сорочан Дмитрий \sep \href{https://github.com/DmitryS-01/mlStartHWsSorochan}{GitHub}\par
+
+\section{\Caps{Постановка задачи}}
+
+Цель работы -- исследовать, как число скрытых слоёв и число нейронов влияют на аппроксимацию MLP. По теме 24 необходимо сравнить shallow и deep сети при одинаковом числе параметров и построить heatmap <<ширина $\times$ глубина $\rightarrow$ качество>>. Используются все три типа данных из условия: \textbf{MNIST}, \textbf{Fashion-MNIST} и \textbf{синтетические функции}. Дополнительно MLP сравнивается с классическими моделями: Logistic Regression, Random Forest и LightGBM.
+
+Исследуемая нейросеть намеренно простая:
+\[
+x \rightarrow \mathrm{Flatten} \rightarrow
+(\mathrm{Linear} \rightarrow \mathrm{ReLU})^d
+\rightarrow \mathrm{Linear}(10).
+\]
+BatchNorm, residual connections, scheduler и автоматический hyperparameter tuning не используются: иначе будет сложно отделить эффект архитектуры от эффекта дополнительных техник.
+
+\section{\Caps{EDA и данные}}
+
+Оба image-датасета содержат 60 000 train и 10 000 test изображений размером $28\times28$, 10 классов и grayscale-пиксели в диапазоне $[0,255]$. В EDA проверяются баланс классов, случайные изображения, средние изображения классов, интенсивность пикселей, яркость, pixel variance, расстояния между средними классами и PCA-проекция.
+
+MNIST визуально проще: большая часть изображения -- фон, а классы задаются формой цифры. В Fashion-MNIST классы \textit{T-shirt/top}, \textit{Shirt}, \textit{Pullover} и \textit{Coat} сильнее похожи друг на друга, поэтому ожидается более низкое качество при одинаковом training protocol.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/eda_mnist_examples.png}{MNIST examples появятся после запуска \texttt{00\_EDA.ipynb}.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/eda_fashion_examples.png}{Fashion-MNIST examples появятся после запуска \texttt{00\_EDA.ipynb}.}
+\end{minipage}
+\caption{Примеры объектов двух реальных датасетов.}
+\end{figure}
+
+\section{\Caps{Валидация и контроль leakage}}
+
+Official test не используется при EDA и выборе архитектуры. Official train один раз делится на train/validation со стратификацией и фиксированным seed. Нормализация MLP рассчитывается только по train. Для большого architecture sweep используется одна и та же стратифицированная подвыборка 20 000 train-объектов и тот же validation.
+
+\begin{itemize}
+  \item optimizer, learning rate и число эпох фиксированы внутри sweep;
+  \item early stopping не применяется, чтобы training budget был одинаковым;
+  \item width в parameter-matched эксперименте выбирается только по формуле числа параметров;
+  \item test используется после architecture selection;
+  \item классические baseline сравниваются на том же train size и validation split.
+\end{itemize}
+
+Основные метрики -- \Metric{accuracy} и \Metric{macro-F1}. Дополнительно для классики считаются balanced accuracy и время обучения.
+
+\section{\Caps{Глубина, ширина и число параметров}}
+
+Для $d$ скрытых слоёв одинаковой ширины $w$ число обучаемых параметров равно
+\[
+P(d,w)=(784+1)w+(d-1)(w+1)w+(w+1)\cdot10.
+\]
+Поэтому сеть с большей глубиной при фиксированном $w$ одновременно имеет больше параметров. Обычная heatmap отвечает на вопрос <<какая конкретная конфигурация работает лучше>>, но не доказывает, что выигрыш вызван именно глубиной.
+
+В основном sweep проверяются
+\[
+d\in\{1,2,3,5,10,20,50,100\},\qquad
+w\in\{8,16,32,64,128,256\}.
+\]
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/mnist_accuracy_heatmap.png}{MNIST heatmap будет создана в \texttt{01\_architecture\_research.ipynb}.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/fashion_accuracy_heatmap.png}{Fashion-MNIST heatmap будет создана в \texttt{01\_architecture\_research.ipynb}.}
+\end{minipage}
+\caption{Heatmap <<width $\times$ depth $\rightarrow$ validation accuracy>>.}
+\end{figure}
+
+Кроме heatmap строятся accuracy vs depth, accuracy vs width, accuracy vs parameter count и отдельные learning curves train/validation loss и accuracy. Это позволяет отличить недостаточную выразительность от проблем оптимизации.
+
+\section{\Caps{Shallow vs deep при одинаковом бюджете}}
+
+Для более чистого сравнения задаются бюджеты примерно 50k, 150k и 500k параметров. Для каждого $d\in\{1,2,5,10,20,50,100\}$ выбирается целая ширина $w$, дающая ближайшее число параметров. Validation score не участвует в выборе width.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/mnist_parameter_matched_accuracy.png}{Parameter-matched MNIST result появится после запуска эксперимента.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/fashion_parameter_matched_accuracy.png}{Parameter-matched Fashion-MNIST result появится после запуска эксперимента.}
+\end{minipage}
+\caption{Validation accuracy при сопоставимом числе параметров.}
+\end{figure}
+
+Если deep-сеть выигрывает в обычной heatmap, но не выигрывает при одинаковом parameter budget, нельзя приписывать преимущество глубине: причиной мог быть просто больший размер модели.
+
+\section{\Caps{Универсальная аппроксимация}}
+
+Теорема об универсальной аппроксимации в классической форме утверждает: feed-forward сеть с одним скрытым слоем и подходящей нелинейной активацией при достаточной ширине может сколь угодно точно приблизить непрерывную функцию на компактном множестве.
+
+Это \textbf{теорема существования}, а не инструкция по обучению. Она не говорит:
+\begin{itemize}
+  \item сколько нейронов потребуется shallow-сети;
+  \item будет ли такое представление параметрически эффективным;
+  \item найдёт ли optimizer нужные веса;
+  \item насколько быстро сеть обучится;
+  \item как она будет обобщать на новых данных.
+\end{itemize}
+
+Для функций с композиционной структурой глубина может дать существенно более компактное представление. Одновременно plain MLP глубиной 50--100 слоёв без residual connections может быть труднее оптимизировать. Поэтому формулировки <<глубже всегда лучше>> и <<одного слоя всегда достаточно>> обе некорректны как практические выводы.
+
+\section{\Caps{Классические модели}}
+
+В отдельном ноутбуке сравниваются Logistic Regression, Random Forest и LightGBM. Гиперпараметры намеренно фиксированы и не подбираются по validation: классика нужна как понятный baseline, а не как второй большой tuning-проект.
+
+\begin{figure}[H]
+\centering
+\FigureOrBox{figures/model_comparison_accuracy.png}{Сравнение MLP, Logistic Regression, Random Forest и LightGBM появится после запуска \texttt{02\_classical\_models.ipynb}.}
+\caption{Validation accuracy MLP и классических моделей.}
+\end{figure}
+
+Сравнение проводится также по macro-F1 и времени обучения. Для лучшей классической модели и финальной MLP строятся confusion matrices.
+
+\section{\Caps{Синтетические функции}}
+
+Используются три функции:
+\[
+f_1(x)=\sin(3x)+0.3\cos(7x),
+\]
+\[
+f_2(x)=\sin(2x+0.8\sin(5x)),
+\]
+\[
+f_3(x)=0.6|x|+0.4\sin(6x).
+\]
+На $f_1$ строится отдельная heatmap depth $\times$ width по MSE; на всех трёх сравниваются shallow/deep аппроксимации и learning curves.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/synthetic_mse_heatmap.png}{Synthetic heatmap будет создана в \texttt{03\_synthetic\_functions.ipynb}.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\FigureOrBox{figures/synthetic_approximation_compositional.png}{График аппроксимации композиционной функции появится после запуска.}
+\end{minipage}
+\caption{Синтетический эксперимент: ошибка и форма аппроксимации.}
+\end{figure}
+
+\section{\Caps{Результаты и интерпретация}}
+
+После выполнения ноутбуков численные таблицы сохраняются в \texttt{report/*.csv}, а графики -- в \texttt{report/figures/}. В отчёте принципиально не зафиксированы заранее придуманные числа: итоговые значения должны соответствовать реальному запуску на конкретном окружении.
+
+\IfFileExists{results.tex}{\input{results.tex}}{\textit{Численная таблица автоматически появится здесь после последовательного запуска всех ноутбуков и повторной компиляции отчёта.}}
+
+Корректный вывод строится в таком порядке:
+\begin{enumerate}
+  \item найти лучшую пару depth/width по validation;
+  \item проверить, сохраняется ли преимущество в parameter-matched сравнении;
+  \item посмотреть learning curves и понять, является ли провал deep-сети проблемой оптимизации;
+  \item сравнить лучшую MLP с RF/LightGBM/Logistic Regression;
+  \item использовать official test после architecture selection;
+  \item проверить, повторяется ли качественная картина на Fashion-MNIST и синтетических функциях.
+\end{enumerate}
+
+Главная идея работы: \textbf{архитектуру нельзя оценивать только по одному числу accuracy}. Нужно разделять выразительность, число параметров и оптимизируемость сети.
+
+\section{\Caps{Воспроизводимость}}
+
+Код целиком находится в четырёх Jupyter Notebook без отдельного `src/` и тестовой обвязки. `SEED=143` фиксирован, данные автоматически скачиваются `torchvision` в пользовательский cache, результаты сохраняются рядом с LaTeX-отчётом. Инструкция запуска на Linux приведена в `README.md`.
+
+\end{document}
