@@ -2,9 +2,9 @@ numpy
 pandas
 matplotlib
 seaborn
-scikit-learn
+scikit-learn>=1.8
 torch
 torchvision
-lightgbm
+lightgbm>=4.0
 jupyter
 nbformat
